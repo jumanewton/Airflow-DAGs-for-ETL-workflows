@@ -1,9 +1,9 @@
 from airflow import DAG
-from airflow.providers.https.hooks.http import HttpHook
+from airflow.providers.http.hooks.http import HttpHook
 from airflow.providers.postgres.hooks.postgres import PostgresHook
 from airflow.operators.python import PythonOperator
 from airflow.decorators import task
-from airflow.utils.dates import days_ago
+from pendulum import datetime
 import os
 import json
 import requests
@@ -19,7 +19,7 @@ YOUR_API_KEY = os.getenv('YOUR_API_KEY')
 
 default_args = {
     'owner': 'airflow',
-    'start_date': days_ago(1)
+    'start_date': datetime(2025, 1, 1, tz='UTC')
 }
 
 # Define the DAG
@@ -27,17 +27,30 @@ with DAG(
     'etl_weather',
     default_args=default_args,
     description='A simple ETL DAG to fetch weather data and store it in Postgres',
-    schedule_interval='@daily',
+    schedule='@daily',
     catchup=False
 ) as dag:
 
     @task
     def extract_weather_data():
         # extract weather data from OpenWeatherMap API
+        # 1. Initialize the hook
         http_hook = HttpHook(method='GET', http_conn_id=API_CONN_ID)
-        endpoint = f"data/2.5/weather?lat={LATITUDE}&lon={LONGITUDE}&appid=YOUR_API_KEY&units=metric"
-        response = http_hook.run(endpoint)
-        return response.json()
+        
+        # 2. Separate the base endpoint path from the query parameters
+        endpoint = "data/2.5/weather"
+        data = {
+            "lat": LATITUDE,
+            "lon": LONGITUDE,
+            "units": "metric"
+            # The 'appid' API key should be stored inside the Connection's "Extra" or "Password" field
+        }
+        
+        # 3. Run the hook (returns a string)
+        response_text = http_hook.run(endpoint, data=data).text
+        
+        # 4. Parse and return the JSON
+        return json.loads(response_text)
 
     @task
     def transform_weather_data(weather_data):
